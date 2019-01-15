@@ -130,9 +130,12 @@ LONG WINAPI MessageOnlyWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
 
 				HWND hWndFocus = ::GetFocus();
 				RAWKEYBOARD& KbData = pData->data.keyboard;
+				const SHORT VKey = KbData.VKey;
+				const BYTE ScanCode = static_cast<BYTE>(KbData.MakeCode);
+				const bool IsExt = (KbData.Flags & RI_KEY_E0);
 
-				LPARAM KbLParam = (1 << 0) | (KbData.MakeCode << 16);
-				if (KbData.Flags & RI_KEY_E0) KbLParam |= (1 << 24);
+				LPARAM KbLParam = (1 << 0) | (ScanCode << 16);
+				if (IsExt) KbLParam |= (1 << 24);
 
 				switch (KbData.Message)
 				{
@@ -165,36 +168,36 @@ LONG WINAPI MessageOnlyWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
 				}
 
 				HWND hWndReceiver = hWndFocus ? hWndFocus : ::GetActiveWindow();
-				if (hWndReceiver) ::PostMessage(hWndReceiver, KbData.Message, KbData.VKey, KbLParam);
+				if (hWndReceiver) ::PostMessage(hWndReceiver, KbData.Message, VKey, KbLParam);
 
 				// Posted keyboard messages don't change the thread keyboard state so we must update it manually
 				// for accelerators and some other windows internals (like alt codes Alt + Numpad NNN) to work.
-				if (KbData.VKey < 256)
+				if (VKey < 256)
 				{
 					BYTE Keys[256];
 					::GetKeyboardState(Keys);
 
 					const bool IsKeyDown = (KbData.Message == WM_KEYDOWN || KbData.Message == WM_SYSKEYDOWN);
-					SetKeyState(Keys[KbData.VKey], IsKeyDown);
+					SetKeyState(Keys[VKey], IsKeyDown);
 
-					switch (KbData.VKey)
+					switch (VKey)
 					{
 						case VK_SHIFT:
 						{
-							const UINT VKey = ::MapVirtualKey((KbData.MakeCode & 0x00ff0000) >> 16, MAPVK_VSC_TO_VK_EX);
-							SetKeyState(Keys[VKey == VK_RSHIFT ? VK_RSHIFT : VK_LSHIFT], IsKeyDown);
+							const UINT VKeyH = ::MapVirtualKey(ScanCode, MAPVK_VSC_TO_VK_EX);
+							SetKeyState(Keys[VKeyH == VK_RSHIFT ? VK_RSHIFT : VK_LSHIFT], IsKeyDown);
 							break;
 						}
 						case VK_CONTROL:
 						{
-							const UINT VKey = (KbData.Flags & RI_KEY_E0) ? VK_RCONTROL : VK_LCONTROL;
-							SetKeyState(Keys[VKey], IsKeyDown);
+							const SHORT VKeyH = IsExt ? VK_RCONTROL : VK_LCONTROL;
+							SetKeyState(Keys[VKeyH], IsKeyDown);
 							break;
 						}
 						case VK_MENU:
 						{
-							const UINT VKey = (KbData.Flags & RI_KEY_E0) ? VK_RMENU : VK_LMENU;
-							SetKeyState(Keys[VKey], IsKeyDown);
+							const SHORT VKeyH = IsExt ? VK_RMENU : VK_LMENU;
+							SetKeyState(Keys[VKeyH], IsKeyDown);
 							break;
 						}
 					}
