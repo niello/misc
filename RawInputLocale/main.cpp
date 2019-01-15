@@ -1,14 +1,20 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <memory>
-#include <string>
+#include <sstream>
 
 // Switch this to see the difference
 constexpr bool USE_NOLEGACY_RAW_INPUT = true;
+// If true, each second key will be consumed by an input system
+constexpr bool EMULATE_INPUT_CONSUMING = false;
+
+static std::string GetMessageStateString(WPARAM wParam, LPARAM lParam);
 
 // Window procedure for GUI windows
 LONG WINAPI WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+	std::string StateStr = GetMessageStateString(wParam, lParam);
+
 	switch (uMsg)
 	{
 		case WM_DESTROY:
@@ -17,13 +23,13 @@ LONG WINAPI WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			return 0;
 		}
 
-		case WM_KEYDOWN: ::OutputDebugString("WM_KEYDOWN\n"); break;
-		case WM_SYSKEYDOWN: ::OutputDebugString("WM_KEYDOWN\n"); break;
-		case WM_KEYUP: ::OutputDebugString("WM_KEYUP\n"); break;
-		case WM_SYSKEYUP: ::OutputDebugString("WM_SYSKEYUP\n"); break;
+		case WM_KEYDOWN: ::OutputDebugString(("WM_KEYDOWN " + StateStr + "\n").c_str()); break;
+		case WM_SYSKEYDOWN: ::OutputDebugString(("WM_SYSKEYDOWN " + StateStr + "\n").c_str()); break;
+		case WM_KEYUP: ::OutputDebugString(("WM_KEYUP " + StateStr + "\n").c_str()); break;
+		case WM_SYSKEYUP: ::OutputDebugString(("WM_SYSKEYUP " + StateStr + "\n").c_str()); break;
 
 		// In our case this is a valid indicator
-		case WM_INPUTLANGCHANGE: ::OutputDebugString("WM_INPUTLANGCHANGE\n"); break;
+		case WM_INPUTLANGCHANGE: ::OutputDebugString(("WM_INPUTLANGCHANGE " + StateStr + "\n").c_str()); break;
 
 		case WM_CHAR:
 		case WM_SYSCHAR:
@@ -70,7 +76,7 @@ LONG WINAPI MessageOnlyWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
 
 		// Instead of invoking real handlers we are emulating a handled state here so that each second key is handled
 		static bool RawInputWasHandled = false;
-		if (!(pData->data.keyboard.Flags & RI_KEY_BREAK))
+		if (EMULATE_INPUT_CONSUMING && !(pData->data.keyboard.Flags & RI_KEY_BREAK))
 			RawInputWasHandled = !RawInputWasHandled;
 
 		if (RawInputWasHandled)
@@ -80,6 +86,9 @@ LONG WINAPI MessageOnlyWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
 		else
 		{
 			::OutputDebugString("Raw input was not handled, legacy message will be sent\n");
+
+			std::string StateStr = GetMessageStateString(wParam, lParam);
+			::OutputDebugString(("WM_INPUT " + StateStr + '\n').c_str());
 
 			::DefRawInputProc(&pData, 1, sizeof(RAWINPUTHEADER));
 
@@ -287,5 +296,34 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpC
 	::UnregisterClass((const char*)aMessageOnlyWndClass, hInstance);
 
 	return 0; 
+}
+//---------------------------------------------------------------------
+
+static std::string GetMessageStateString(WPARAM wParam, LPARAM lParam)
+{
+	std::string ShiftStateStr(" shifts ");
+	ShiftStateStr += (::GetKeyState(VK_SHIFT) & 0x8000) ? '1' : '0';
+	ShiftStateStr += (::GetKeyState(VK_LSHIFT) & 0x8000) ? '1' : '0';
+	ShiftStateStr += (::GetKeyState(VK_RSHIFT) & 0x8000) ? '1' : '0';
+	ShiftStateStr += (::GetAsyncKeyState(VK_SHIFT) & 0x8000) ? '1' : '0';
+	ShiftStateStr += (::GetAsyncKeyState(VK_LSHIFT) & 0x8000) ? '1' : '0';
+	ShiftStateStr += (::GetAsyncKeyState(VK_RSHIFT) & 0x8000) ? '1' : '0';
+
+	std::string AltStateStr(" alts ");
+	AltStateStr += (::GetKeyState(VK_MENU) & 0x8000) ? '1' : '0';
+	AltStateStr += (::GetKeyState(VK_LMENU) & 0x8000) ? '1' : '0';
+	AltStateStr += (::GetKeyState(VK_RMENU) & 0x8000) ? '1' : '0';
+	AltStateStr += (::GetAsyncKeyState(VK_MENU) & 0x8000) ? '1' : '0';
+	AltStateStr += (::GetAsyncKeyState(VK_LMENU) & 0x8000) ? '1' : '0';
+	AltStateStr += (::GetAsyncKeyState(VK_RMENU) & 0x8000) ? '1' : '0';
+
+	std::stringstream stream;
+	stream << std::hex << wParam;
+	std::string WStr(stream.str());
+	stream.clear();
+	stream << std::hex << lParam;
+	std::string LStr(stream.str());
+
+	return "W 0x" + WStr + " L 0x" + LStr + ShiftStateStr + AltStateStr;
 }
 //---------------------------------------------------------------------
