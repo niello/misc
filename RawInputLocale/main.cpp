@@ -72,6 +72,9 @@ LONG WINAPI MessageOnlyWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
 			return ::DefWindowProc(hWnd, uMsg, wParam, lParam);
 		}
 
+		std::string StateStr = GetMessageStateString(wParam, lParam);
+		::OutputDebugString(("WM_INPUT " + StateStr + '\n').c_str());
+
 		PRAWINPUT pData = (PRAWINPUT)pRawInputBuffer;
 
 		// Instead of invoking real handlers we are emulating a handled state here so that each second key is handled
@@ -86,9 +89,6 @@ LONG WINAPI MessageOnlyWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
 		else
 		{
 			::OutputDebugString("Raw input was not handled, legacy message will be sent\n");
-
-			std::string StateStr = GetMessageStateString(wParam, lParam);
-			::OutputDebugString(("WM_INPUT " + StateStr + '\n').c_str());
 
 			::DefRawInputProc(&pData, 1, sizeof(RAWINPUTHEADER));
 
@@ -254,10 +254,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpC
 					{
 						case VK_SHIFT:
 						{
-							// Setting VK_SHIFT bit 0x80 here disables a language switching hotkey Alt+Shift,
-							// but it doesn't work with RIDEV_NOLEGACY anyway
-							//Keys[VK_SHIFT] = 0;
-
 							const UINT VKey = ::MapVirtualKey((Msg.lParam & 0x00ff0000) >> 16, MAPVK_VSC_TO_VK_EX);
 							Keys[VKey] = KeyState;
 							break;
