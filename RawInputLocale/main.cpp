@@ -9,6 +9,7 @@ constexpr bool USE_NOLEGACY_RAW_INPUT = true;
 constexpr bool EMULATE_INPUT_CONSUMING = false;
 
 static std::string GetMessageStateString(WPARAM wParam, LPARAM lParam);
+static void PrintKeyboardStateString(const std::string& Prefix);
 
 // Window procedure for GUI windows
 LONG WINAPI WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -23,10 +24,22 @@ LONG WINAPI WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			return 0;
 		}
 
-		case WM_KEYDOWN: ::OutputDebugString(("WM_KEYDOWN " + StateStr + "\n").c_str()); break;
-		case WM_SYSKEYDOWN: ::OutputDebugString(("WM_SYSKEYDOWN " + StateStr + "\n").c_str()); break;
-		case WM_KEYUP: ::OutputDebugString(("WM_KEYUP " + StateStr + "\n").c_str()); break;
-		case WM_SYSKEYUP: ::OutputDebugString(("WM_SYSKEYUP " + StateStr + "\n").c_str()); break;
+		case WM_KEYDOWN:
+			PrintKeyboardStateString("Wnd");
+			::OutputDebugString(("WM_KEYDOWN " + StateStr + "\n").c_str());
+			break;
+		case WM_SYSKEYDOWN:
+			PrintKeyboardStateString("Wnd");
+			::OutputDebugString(("WM_SYSKEYDOWN " + StateStr + "\n").c_str());
+			break;
+		case WM_KEYUP:
+			PrintKeyboardStateString("Wnd");
+			::OutputDebugString(("WM_KEYUP " + StateStr + "\n").c_str());
+			break;
+		case WM_SYSKEYUP:
+			PrintKeyboardStateString("Wnd");
+			::OutputDebugString(("WM_SYSKEYUP " + StateStr + "\n").c_str());
+			break;
 
 		// In our case this is a valid indicator
 		case WM_INPUTLANGCHANGE: ::OutputDebugString(("WM_INPUTLANGCHANGE " + StateStr + "\n").c_str()); break;
@@ -41,6 +54,21 @@ LONG WINAPI WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	}
 
 	return ::DefWindowProc(hWnd, uMsg, wParam, lParam);
+}
+//---------------------------------------------------------------------
+
+static void SetKeyState(BYTE& KeyState, bool IsDown)
+{
+	if (IsDown)
+	{
+		// Set 'down' bit 0x80, toggle 'toggle' bit 0x01
+		KeyState = 0x80 | (0x01 ^ (KeyState & 0x01));
+	}
+	else
+	{
+		// Clear 'down' bit 0x80
+		KeyState &= ~0x80;
+	}
 }
 //---------------------------------------------------------------------
 
@@ -138,6 +166,41 @@ LONG WINAPI MessageOnlyWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
 
 				HWND hWndReceiver = hWndFocus ? hWndFocus : ::GetActiveWindow();
 				if (hWndReceiver) ::PostMessage(hWndReceiver, KbData.Message, KbData.VKey, KbLParam);
+
+				// Posted keyboard messages don't change the thread keyboard state so we must update it manually
+				// for accelerators and some other windows internals (like alt codes Alt + Numpad NNN) to work.
+				if (KbData.VKey < 256)
+				{
+					BYTE Keys[256];
+					::GetKeyboardState(Keys);
+
+					const bool IsKeyDown = (KbData.Message == WM_KEYDOWN || KbData.Message == WM_SYSKEYDOWN);
+					SetKeyState(Keys[KbData.VKey], IsKeyDown);
+
+					switch (KbData.VKey)
+					{
+						case VK_SHIFT:
+						{
+							const UINT VKey = ::MapVirtualKey((KbData.MakeCode & 0x00ff0000) >> 16, MAPVK_VSC_TO_VK_EX);
+							SetKeyState(Keys[VKey == VK_RSHIFT ? VK_RSHIFT : VK_LSHIFT], IsKeyDown);
+							break;
+						}
+						case VK_CONTROL:
+						{
+							const UINT VKey = (KbData.Flags & RI_KEY_E0) ? VK_RCONTROL : VK_LCONTROL;
+							SetKeyState(Keys[VKey], IsKeyDown);
+							break;
+						}
+						case VK_MENU:
+						{
+							const UINT VKey = (KbData.Flags & RI_KEY_E0) ? VK_RMENU : VK_LMENU;
+							SetKeyState(Keys[VKey], IsKeyDown);
+							break;
+						}
+					}
+
+					::SetKeyboardState(Keys);
+				}
 			}
 		}
 
@@ -222,6 +285,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpC
 
 	// Message loop
 
+	PrintKeyboardStateString("Start");
+
 	MSG Msg;
 	while (true)
 	{
@@ -233,48 +298,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpC
 
 		if (Msg.message == WM_QUIT) break;
 
-		if (USE_NOLEGACY_RAW_INPUT)
+		if (Msg.message == WM_KEYDOWN || Msg.message == WM_SYSKEYDOWN || Msg.message == WM_KEYUP || Msg.message == WM_SYSKEYUP)
 		{
-			// Posted keyboard messages don't change the thread keyboard state so we must update it manually
-			// for accelerators and some other windows internals (like alt codes Alt + Numpad NNN) to work.
-			// "The status changes as a thread removes keyboard messages from its message queue" (c) Docs
-			const bool IsKeyDown = (Msg.message == WM_KEYDOWN || Msg.message == WM_SYSKEYDOWN);
-			const bool IsKeyUp = (Msg.message == WM_KEYUP || Msg.message == WM_SYSKEYUP);
-			if (IsKeyDown || IsKeyUp)
-			{
-				if (Msg.wParam < 256)
-				{
-					BYTE Keys[256];
-					::GetKeyboardState(Keys);
-
-					BYTE KeyState = IsKeyDown ? 0x80 : 0x00;
-
-					Keys[Msg.wParam] = KeyState;
-					switch (Msg.wParam)
-					{
-						case VK_SHIFT:
-						{
-							const UINT VKey = ::MapVirtualKey((Msg.lParam & 0x00ff0000) >> 16, MAPVK_VSC_TO_VK_EX);
-							Keys[VKey] = KeyState;
-							break;
-						}
-						case VK_CONTROL:
-						{
-							const UINT VKey = (Msg.lParam & 0x01000000) ? VK_RCONTROL : VK_LCONTROL;
-							Keys[VKey] = KeyState;
-							break;
-						}
-						case VK_MENU:
-						{
-							const UINT VKey = (Msg.lParam & 0x01000000) ? VK_RMENU : VK_LMENU;
-							Keys[VKey] = KeyState;
-							break;
-						}
-					}
-
-					::SetKeyboardState(Keys);
-				}
-			}
+			PrintKeyboardStateString("Loop");
 		}
 
 		::TranslateMessage(&Msg);
@@ -323,3 +349,23 @@ static std::string GetMessageStateString(WPARAM wParam, LPARAM lParam)
 	return "W 0x" + WStr + " L 0x" + LStr + ShiftStateStr + AltStateStr;
 }
 //---------------------------------------------------------------------
+
+static void PrintKeyboardStateString(const std::string& Prefix)
+{
+	std::string Out;
+
+	//constexpr int ProblemIndices[] = { VK_SHIFT, VK_CONTROL, VK_LSHIFT, VK_LCONTROL };
+	//constexpr int ProblemCount = sizeof(ProblemIndices) / sizeof(ProblemIndices[0]);
+
+	BYTE Keys[256];
+	::GetKeyboardState(Keys);
+	for (int i = 1; i < 165; ++i) // 0 not needed, after 165 all is the same
+	//for (int idx = 0; idx < ProblemCount; ++idx)
+	{
+		//int i = ProblemIndices[idx];
+		BYTE Key = Keys[i];
+		Out += (Key == 0x80) ? '8' : (Key == 0x00) ? '0' : (Key == 0x01) ? '1' : (Key == 0x81) ? '9' : '?';
+	}
+
+	::OutputDebugString((Prefix + "KbState: " + Out + '\n').c_str());
+}
