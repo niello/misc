@@ -4,7 +4,37 @@
 #include <string>
 
 // Switch this to see the difference
-constexpr bool USE_NOLEGACY_RAW_INPUT = false;
+constexpr bool USE_NOLEGACY_RAW_INPUT = true;
+constexpr bool USE_WORKAROUND = false;
+
+constexpr int INPUT_LOCALE_HOTKEY_ALT_SHIFT = 1;
+constexpr int INPUT_LOCALE_HOTKEY_CTRL_SHIFT = 2;
+constexpr int INPUT_LOCALE_HOTKEY_NOT_SET = 3;
+constexpr int INPUT_LOCALE_HOTKEY_GRAVE = 4;
+
+int InputLocaleHotkey = INPUT_LOCALE_HOTKEY_NOT_SET;
+
+static void ReadInputLocaleHotkey()
+{
+	if (!USE_WORKAROUND) return;
+
+	InputLocaleHotkey = INPUT_LOCALE_HOTKEY_ALT_SHIFT; // Windows default setting
+
+	char RegData[4];
+	DWORD RegDataSize = sizeof(RegData);
+	LSTATUS ls = ::RegGetValue(HKEY_CURRENT_USER, "Keyboard Layout\\Toggle", "Hotkey", RRF_RT_ANY, NULL, &RegData, &RegDataSize);
+	if (ls == ERROR_SUCCESS && RegDataSize > 0)
+	{
+		switch (RegData[0])
+		{
+			case '1': InputLocaleHotkey = INPUT_LOCALE_HOTKEY_ALT_SHIFT; break;
+			case '2': InputLocaleHotkey = INPUT_LOCALE_HOTKEY_CTRL_SHIFT; break;
+			case '3': InputLocaleHotkey = INPUT_LOCALE_HOTKEY_NOT_SET; break;
+			case '4': InputLocaleHotkey = INPUT_LOCALE_HOTKEY_GRAVE; break;
+		};
+	}
+}
+//---------------------------------------------------------------------
 
 static void SetKeyState(BYTE& KeyState, bool IsDown)
 {
@@ -138,6 +168,14 @@ LONG WINAPI WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			break;
 		}
 
+		case WM_SETTINGCHANGE:
+		{
+			if (wParam == SPI_SETLANGTOGGLE) ReadInputLocaleHotkey();
+			break;
+		}
+
+		case WM_ACTIVATEAPP: ReadInputLocaleHotkey(); break;
+
 		// In our case this is a valid indicator
 		case WM_INPUTLANGCHANGE: ::OutputDebugString("WM_INPUTLANGCHANGE\n"); break;
 
@@ -158,6 +196,8 @@ LONG WINAPI WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpCmdLine*/, int /*nCmdShow*/)
 {
+	ReadInputLocaleHotkey();
+
 	// Create main window (can create multiple, but it doesn't matter)
 
 	WNDCLASSEX WndClass2;
@@ -201,11 +241,48 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpC
 
 	// Message loop
 
-	MSG Msg;
 	while (true)
 	{
+		MSG Msg;
 		if (!::PeekMessage(&Msg, NULL, 0, 0, PM_REMOVE)) continue;
 		if (Msg.message == WM_QUIT) break;
+
+		// Accelerators can't process Alt+Shift or Ctrl+Shift, also accelerators are
+		// triggered by keydown. Let's implement a correct behaviour manually.
+		if (USE_WORKAROUND && USE_NOLEGACY_RAW_INPUT && InputLocaleHotkey != INPUT_LOCALE_HOTKEY_NOT_SET)
+		{
+			if (Msg.message == WM_KEYDOWN || Msg.message == WM_SYSKEYDOWN)
+			{
+				if (InputLocaleHotkey == INPUT_LOCALE_HOTKEY_GRAVE && Msg.wParam == VK_OEM_3)
+				{
+					// Suppress character generation
+					continue;
+				}
+			}
+			else if (Msg.message == WM_KEYUP || Msg.message == WM_SYSKEYUP)
+			{
+				bool ToggleInputLocale = false;
+				switch (InputLocaleHotkey)
+				{
+					case INPUT_LOCALE_HOTKEY_ALT_SHIFT:
+						ToggleInputLocale = (Msg.wParam == VK_SHIFT && (::GetKeyState(VK_MENU) & 0x80));
+						break;
+					case INPUT_LOCALE_HOTKEY_CTRL_SHIFT:
+						ToggleInputLocale = (Msg.wParam == VK_SHIFT && (::GetKeyState(VK_CONTROL) & 0x80));
+						break;
+					case INPUT_LOCALE_HOTKEY_GRAVE:
+						ToggleInputLocale = (Msg.wParam == VK_OEM_3); // Grave ('`', typically the same key as '~')
+						break;
+				}
+
+				if (ToggleInputLocale)
+				{
+					::ActivateKeyboardLayout((HKL)HKL_NEXT, KLF_SETFORPROCESS);
+					continue;
+				}
+			}
+		}
+
 		::TranslateMessage(&Msg);
 		::DispatchMessage(&Msg);
 	}
