@@ -148,9 +148,9 @@ inline void CGameWorld::ForEachEntityWith(TCallback Callback)
 				if (!GetNextComponents<Components...>(EntityID, NextComponents, NextStorages)) continue;
 
 			if constexpr (std::is_const_v<TComponent>)
-				std::apply(std::forward<TCallback>(Callback), std::tuple_cat(std::make_tuple((int)pStorage, std::cref(Component)), NextComponents));
+				std::apply(std::forward<TCallback>(Callback), std::tuple_cat(std::make_tuple(std::cref(Component)), NextComponents));
 			else
-				std::apply(std::forward<TCallback>(Callback), std::tuple_cat(std::make_tuple((int)pStorage, std::ref(Component)), NextComponents));
+				std::apply(std::forward<TCallback>(Callback), std::tuple_cat(std::make_tuple(std::ref(Component)), NextComponents));
 		}
 	}
 }
@@ -164,9 +164,9 @@ inline void CGameWorld::ForEachComponent(TCallback Callback)
 		for (auto&& Component : *pStorage)
 		{
 			if constexpr (std::is_const_v<TComponent>)
-				Callback((int)pStorage, std::cref(Component));
+				Callback(std::cref(Component));
 			else
-				Callback((int)pStorage, std::ref(Component));
+				Callback(std::ref(Component));
 		}
 	}
 }
