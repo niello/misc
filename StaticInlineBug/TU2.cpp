@@ -1,9 +1,9 @@
 #include "TypeIndex.h"
 #include "Types.h"
 
-void DoSomething2(DEM::Game::CGameWorld& World)
+void WorkWithTypes(Registry& registry)
 {
-	World.ForEachComponent<DEM::Game::Type2>([](DEM::Game::Type2& AnimComponent)
+	registry.ForEachComponent<Type2>([](Type2& AnimComponent)
 	{
 		// do something
 	});
