@@ -1,7 +1,12 @@
 #pragma once
-#include "Storage.h"
 #include <vector>
-#include <memory>
+
+#undef NDEBUG // For assertion failures in release
+#include <assert.h>
+
+struct Type1 {};
+struct Type2 {};
+struct Type3 {};
 
 class Registry final
 {
@@ -11,23 +16,19 @@ public:
 	inline static uint32_t nextTypeIndex = 0;
 	template<typename T> inline static const uint32_t typeIndex = nextTypeIndex++;
 
-	std::vector<std::unique_ptr<IStorage>> storages;
+	std::vector<bool> types;
 
 	template<class T> void RegisterType()
 	{
 		const auto idx = typeIndex<T>;
-		if (storages.size() <= idx) storages.resize(idx + 1);
-		storages[idx] = std::make_unique<CStorageImpl<T>>();
+		if (types.size() <= idx) types.resize(idx + 1);
+		types[idx] = true;
 	}
 
-	template<typename T, typename TCallback>
-	void ForEachComponent(TCallback Callback)
+	template<typename T>
+	void DoSomethingWithType()
 	{
-		const auto TypeIndex = typeIndex<T>;
-		if (storages.size() <= TypeIndex) return;
-
-		if (auto pStorage = static_cast<CStorageImpl<T>*>(storages[TypeIndex].get()))
-			for (auto&& Component : *pStorage)
-				Callback(std::ref(Component));
+		const auto idx = typeIndex<T>;
+		assert(idx < types.size() && types[idx]); // Always passes, used to prevent optimization
 	}
 };

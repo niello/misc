@@ -1,5 +1,4 @@
 #include "TypeIndex.h"
-#include "Types.h"
 
 void RegisterTypes(Registry& registry)
 {

@@ -1,13 +1,17 @@
 #include "TypeIndex.h"
-#include <assert.h>
 
 void RegisterTypes(Registry& registry);
-void WorkWithTypes(Registry& registry);
 
 void main()
 {
 	Registry registry;
+
+	// Registry::typeIndex access happens in translation unit TU1.cpp
 	RegisterTypes(registry);
-	//WorkWithTypes(registry);
-	assert(registry.storages.size() == 3);
+
+	// Registry::typeIndex access happens in translation unit main.cpp
+	// Another Registry::typeIndex<Type2> instance is initialized because of this.
+	registry.DoSomethingWithType<Type2>();
+
+	assert(registry.types.size() == 3);
 }
